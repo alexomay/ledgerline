@@ -4,12 +4,13 @@ import { RouterLink } from '@angular/router';
 import { AccountView, Api, ApiError, Holder, TransferResult } from '../core/api';
 import { Icon } from '../core/icons';
 import { ClabePipe, MoneyPipe, formatFull, initials, isValidClabe } from '../core/format';
+import { TraceView } from './trace-view';
 
 type Step = 'form' | 'confirm' | 'done';
 
 @Component({
   selector: 'll-send',
-  imports: [FormsModule, RouterLink, Icon, MoneyPipe, ClabePipe],
+  imports: [FormsModule, RouterLink, Icon, MoneyPipe, ClabePipe, TraceView],
   template: `
     <main>
       @switch (step()) {
@@ -109,6 +110,27 @@ type Step = 'form' | 'confirm' | 'done';
                   </table>
                 </div>
               </section>
+              <ll-trace [steps]="r.trace.steps" [total]="r.trace.totalMs" />
+
+              <section class="panel replay">
+                <h2>Prueba la idempotencia</h2>
+                <p class="muted">Reenvía exactamente la misma petición, con la misma llave <span class="mono-id">{{ sentKey }}</span>. Es lo que pasa cuando se corta la red y la app reintenta.</p>
+                <div class="replay-row">
+                  <button class="btn btn-ghost" type="button" (click)="replay()" [disabled]="replaying()">
+                    {{ replaying() ? 'Reenviando…' : 'Reenviar la misma petición' }}
+                  </button>
+                  @if (replayResult(); as rr) {
+                    <span class="pill" [class.ok]="rr.replayed && rr.id === r.id" [class.bad]="!rr.replayed || rr.id !== r.id">
+                      <ll-icon [name]="rr.replayed && rr.id === r.id ? 'check' : 'alert'" [size]="16" />
+                      {{ rr.replayed && rr.id === r.id ? 'Misma transferencia, sin segundo cargo' : 'Se creó otra transferencia' }}
+                    </span>
+                  }
+                </div>
+                @if (replayResult(); as rr) {
+                  <ll-trace [steps]="rr.trace.steps" [total]="rr.trace.totalMs" title="Respuesta al reintento" />
+                }
+              </section>
+
               <div class="row">
                 <button class="btn btn-primary" type="button" (click)="reset()">Hacer otro envío</button>
                 <a class="btn btn-ghost" routerLink="/">Volver al inicio</a>
@@ -136,6 +158,10 @@ export class Send {
   protected sending = signal(false);
   protected canRetry = signal(false);
   protected result = signal<TransferResult | null>(null);
+  protected replayResult = signal<TransferResult | null>(null);
+  protected replaying = signal(false);
+  /** Llave del envío ya hecho, para la demostración de reintento. */
+  protected sentKey = '';
   protected initials = initials;
   protected full = formatFull;
 
@@ -201,6 +227,8 @@ export class Send {
     try {
       const r = await this.api.transfer(this.idempotencyKey, this.clabe(), this.amount(), this.concept.trim());
       this.result.set(r);
+      this.sentKey = this.idempotencyKey;
+      this.replayResult.set(null);
       this.idempotencyKey = null;
       this.step.set('done');
     } catch (e) {
@@ -210,6 +238,18 @@ export class Send {
       this.canRetry.set(err.status === 0 || err.status >= 500);
     } finally {
       this.sending.set(false);
+    }
+  }
+
+  protected async replay() {
+    this.replaying.set(true);
+    try {
+      this.replayResult.set(await this.api.transfer(this.sentKey, this.clabe(), this.amount(), this.concept.trim()));
+      this.api.me().then((a) => this.account.set(a)).catch(() => undefined);
+    } catch (e) {
+      this.error.set((e as ApiError).message);
+    } finally {
+      this.replaying.set(false);
     }
   }
 
@@ -225,6 +265,7 @@ export class Send {
     this.amountText = '';
     this.concept = '';
     this.result.set(null);
+    this.replayResult.set(null);
     this.step.set('form');
     this.api.me().then((a) => this.account.set(a)).catch(() => undefined);
   }

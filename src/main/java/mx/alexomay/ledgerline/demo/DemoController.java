@@ -58,18 +58,21 @@ class DemoController {
     private final SpeiSignature signatures;
     private final JsonMapper json;
     private final SpeiWebhookHandler bank;
+    private final StressTest stress;
 
     DemoController(
             LedgerlineProperties props,
             AccountService accounts,
             SpeiSignature signatures,
             JsonMapper json,
-            SpeiWebhookHandler bank) {
+            SpeiWebhookHandler bank,
+            StressTest stress) {
         this.props = props;
         this.accounts = accounts;
         this.signatures = signatures;
         this.json = json;
         this.bank = bank;
+        this.stress = stress;
     }
 
     @GetMapping
@@ -111,6 +114,19 @@ class DemoController {
 
         // Mismo camino que una notificación real: firma, verificación, validación y abono.
         return bank.handle(body, signatures.sign(body));
+    }
+
+    @PostMapping("/stress")
+    @Operation(summary = "Lanza 100 transferencias simultáneas entre las cuentas demo y concilia (solo administrador)")
+    StressTest.Result stress(@AuthenticationPrincipal Jwt jwt) throws Exception {
+        if (!props.demo().enabled()) {
+            throw new ApiException(ErrorCode.DEMO_DISABLED, "La prueba de carga solo está disponible en modo demo.");
+        }
+        List<String> roles = jwt.getClaimAsStringList("roles");
+        if (roles == null || !roles.contains("ADMIN")) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Solo la administración puede lanzar la prueba de carga.");
+        }
+        return stress.run();
     }
 
     /** Clave de rastreo con el formato habitual: prefijo, fecha y consecutivo. */

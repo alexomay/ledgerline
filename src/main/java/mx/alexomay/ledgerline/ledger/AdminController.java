@@ -4,6 +4,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 import mx.alexomay.ledgerline.common.Money;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +28,8 @@ class AdminController {
             BigDecimal volumeLast24h,
             long outboxPending,
             long outboxFailing) {}
+
+    record EventView(long id, String type, UUID aggregateId, Instant createdAt, Instant publishedAt, int attempts) {}
 
     private final ReconciliationService reconciliation;
     private final JdbcClient jdbc;
@@ -63,5 +68,22 @@ class AdminController {
                         rs.getLong(6),
                         rs.getLong(7)))
                 .single();
+    }
+
+    @GetMapping("/events")
+    @Operation(summary = "Últimos eventos de la bandeja de salida y si ya se publicaron")
+    List<EventView> events() {
+        return jdbc.sql("""
+                        select id, event_type, aggregate_id, created_at, published_at, attempts
+                        from outbox_events order by id desc limit 12
+                        """)
+                .query((rs, i) -> new EventView(
+                        rs.getLong(1),
+                        rs.getString(2),
+                        rs.getObject(3, UUID.class),
+                        rs.getTimestamp(4).toInstant(),
+                        rs.getTimestamp(5) == null ? null : rs.getTimestamp(5).toInstant(),
+                        rs.getInt(6)))
+                .list();
     }
 }

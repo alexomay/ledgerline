@@ -13,10 +13,12 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import mx.alexomay.ledgerline.common.ApiException;
 import mx.alexomay.ledgerline.common.ErrorCode;
 import mx.alexomay.ledgerline.common.Money;
+import mx.alexomay.ledgerline.common.Trace;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -42,8 +44,16 @@ class TransferController {
             @NotBlank(message = "Escribe un concepto.") @Size(max = 140, message = "Máximo 140 caracteres.")
                     String concept) {}
 
+    record TraceView(List<Trace.Step> steps, double totalMs) {}
+
     record TransferResponse(
-            UUID id, String toClabe, BigDecimal amount, String concept, Instant createdAt, boolean replayed) {}
+            UUID id,
+            String toClabe,
+            BigDecimal amount,
+            String concept,
+            Instant createdAt,
+            boolean replayed,
+            TraceView trace) {}
 
     private final TransferService service;
 
@@ -65,11 +75,27 @@ class TransferController {
         if (key.isEmpty() || key.length() > 80) {
             throw new ApiException(ErrorCode.MISSING_IDEMPOTENCY_KEY, "Idempotency-Key debe tener entre 1 y 80 caracteres.");
         }
+        long started = System.nanoTime();
         TransferService.Result result = service.transfer(new TransferService.Command(
                 UUID.fromString(jwt.getSubject()), key, req.toClabe(), Money.toCents(req.amount()), req.concept().trim()));
+        // El commit ocurre al salir del servicio: ahí PostgreSQL corre el trigger que revisa que el asiento cuadre.
+        Trace trace = result.trace();
+        double total = (System.nanoTime() - started) / 1e6;
+        trace.add(
+                "Commit",
+                result.replayed()
+                        ? "Solo lectura: no hubo cambios que confirmar"
+                        : "PostgreSQL verifica que el asiento sume cero (trigger diferido) y confirma todo junto",
+                Math.max(0, total - trace.totalMs()));
         Transfer t = result.transfer();
         TransferResponse body = new TransferResponse(
-                t.getId(), req.toClabe(), Money.toPesos(t.getAmount()), t.getConcept(), t.getCreatedAt(), result.replayed());
+                t.getId(),
+                req.toClabe(),
+                Money.toPesos(t.getAmount()),
+                t.getConcept(),
+                t.getCreatedAt(),
+                result.replayed(),
+                new TraceView(trace.steps(), trace.totalMs()));
         return ResponseEntity.status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
                 .header("Idempotent-Replayed", String.valueOf(result.replayed()))
                 .body(body);

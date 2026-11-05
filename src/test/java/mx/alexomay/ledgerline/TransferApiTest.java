@@ -203,4 +203,31 @@ class TransferApiTest extends IntegrationTest {
         mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON).content(good))
                 .andExpect(status().isTooManyRequests());
     }
+
+    @Test
+    void transferResponseIncludesServerTrace() throws Exception {
+        Session ana = register("Ana Traza");
+        Session luis = register("Luis Traza");
+        deposit(ana, "100.00");
+        JsonNode body = read(transfer(ana, UUID.randomUUID().toString(), luis.clabe(), "10.00", "Traza")
+                .andExpect(status().isCreated()));
+        JsonNode steps = body.get("trace").get("steps");
+        assertThat(steps).extracting(n -> n.get("name").asString())
+                .containsExactly("Llave de idempotencia", "Cuentas", "Bloqueo", "Validación", "Asiento", "Outbox", "Commit");
+        assertThat(body.get("trace").get("totalMs").asDouble()).isPositive();
+    }
+
+    @Test
+    void liveStressTestConservesMoneyAndIsAdminOnly() throws Exception {
+        Session ana = register("Ana Carga");
+        mvc.perform(post("/api/demo/stress").header("Authorization", "Bearer " + ana.token()))
+                .andExpect(status().isForbidden());
+
+        String admin = login("admin@ledgerline.dev", "admin-de-pruebas");
+        mvc.perform(post("/api/demo/stress").header("Authorization", "Bearer " + admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requested").value(100))
+                .andExpect(jsonPath("$.moneyConserved").value(true))
+                .andExpect(jsonPath("$.reconciliationHealthy").value(true));
+    }
 }

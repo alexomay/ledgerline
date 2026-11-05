@@ -36,6 +36,12 @@ export interface MovementPage {
   nextCursor: number | null;
 }
 
+export interface TraceStep {
+  name: string;
+  detail: string;
+  ms: number;
+}
+
 export interface TransferResult {
   id: string;
   toClabe: string;
@@ -43,6 +49,29 @@ export interface TransferResult {
   concept: string;
   createdAt: string;
   replayed: boolean;
+  trace: { steps: TraceStep[]; totalMs: number };
+}
+
+export interface StressResult {
+  requested: number;
+  threads: number;
+  succeeded: number;
+  rejected: Record<string, number>;
+  elapsedMs: number;
+  perSecond: number;
+  totalBefore: string;
+  totalAfter: string;
+  moneyConserved: boolean;
+  reconciliationHealthy: boolean;
+}
+
+export interface OutboxEvent {
+  id: number;
+  type: string;
+  aggregateId: string;
+  createdAt: string;
+  publishedAt: string | null;
+  attempts: number;
 }
 
 export interface Holder {
@@ -146,6 +175,14 @@ export class Api {
 
   reconciliation() {
     return this.call(this.http.get<Reconciliation>('/api/admin/reconciliation'));
+  }
+
+  stress() {
+    return this.call(this.http.post<StressResult>('/api/demo/stress', {}));
+  }
+
+  events() {
+    return this.call(this.http.get<OutboxEvent[]>('/api/admin/events'));
   }
 
   overview() {

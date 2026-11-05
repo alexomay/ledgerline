@@ -10,6 +10,15 @@
 
 ![Inicio de la billetera](docs/inicio.png)
 
+## Lo que muestra la demo
+
+- **La traza real de cada transferencia:** el comprobante muestra, en cascada, cada paso que ejecutó el servidor y cuánto tardó: reserva de la llave de idempotencia, bloqueo de cuentas, validación, asiento, outbox y commit.
+- **Idempotencia en vivo:** un botón reenvía exactamente la misma petición. El servidor responde con la misma transferencia en unos milisegundos y no cobra otra vez.
+- **Prueba de carga desde el panel:** la administración lanza 100 transferencias simultáneas desde 8 hilos y ve, al terminar, que el dinero se conservó y que la conciliación cuadra.
+- **Eventos del outbox** publicándose cada segundo.
+
+![Comprobante con la traza del servidor](docs/comprobante.png)
+
 ## Qué resuelve
 
 Mover dinero parece sencillo hasta que dos operaciones llegan al mismo tiempo, el cliente da doble clic, el banco reenvía una notificación o se corta la conexión a la mitad. Ledgerline está construido alrededor de esos casos:
@@ -98,11 +107,9 @@ frontend/       # Angular 22 con componentes standalone y signals
 - **Seguridad:** JWT firmado, contraseñas con BCrypt, bloqueo de 15 minutos tras 5 intentos fallidos, la misma respuesta para correo inexistente y contraseña incorrecta, CSP estricta y exportación CSV protegida contra inyección de fórmulas.
 - **Eventos con orden por cuenta.** Cada evento va a Kafka con el id de la cuenta como llave, así que los eventos de una cuenta llegan en orden. La entrega es "al menos una vez" y cada evento trae un `eventId` para descartar duplicados.
 
-![Comprobante con el asiento](docs/comprobante.png)
-
 ## Probarlo
 
-**Demo:** entra con "Ana", "Luis" o "Administración" desde la pantalla de inicio. Envía dinero entre Ana y Luis, simula un depósito SPEI y revisa la conciliación.
+**Demo:** entra con "Ana", "Luis" o "Administración" desde la pantalla de inicio. Envía dinero entre Ana y Luis, reenvía la misma petición, simula un depósito SPEI y, como administración, lanza la prueba de carga.
 
 **Con Docker** (PostgreSQL, Kafka y la aplicación):
 
@@ -141,6 +148,8 @@ Las pruebas corren contra PostgreSQL real (embebido, no H2), porque los bloqueos
 | `POST` | `/api/webhooks/spei` | Aviso de depósito SPEI firmado |
 | `GET` | `/api/admin/reconciliation` | Conciliación del libro (administrador) |
 | `GET` | `/api/admin/overview` | Indicadores de operación (administrador) |
+| `GET` | `/api/admin/events` | Últimos eventos del outbox (administrador) |
+| `POST` | `/api/demo/stress` | Prueba de carga en vivo: 100 transferencias simultáneas (administrador, modo demo) |
 
 ```bash
 curl -X POST localhost:8080/api/transfers \

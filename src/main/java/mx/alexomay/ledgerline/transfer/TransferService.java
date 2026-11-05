@@ -13,6 +13,7 @@ import mx.alexomay.ledgerline.account.AccountService;
 import mx.alexomay.ledgerline.common.ApiException;
 import mx.alexomay.ledgerline.common.ErrorCode;
 import mx.alexomay.ledgerline.common.Money;
+import mx.alexomay.ledgerline.common.Trace;
 import mx.alexomay.ledgerline.ledger.JournalEntry;
 import mx.alexomay.ledgerline.ledger.LedgerService;
 import mx.alexomay.ledgerline.outbox.OutboxService;
@@ -25,7 +26,7 @@ public class TransferService {
 
     public record Command(UUID userId, String idempotencyKey, String toClabe, long amount, String concept) {}
 
-    public record Result(Transfer transfer, boolean replayed) {}
+    public record Result(Transfer transfer, boolean replayed, Trace trace) {}
 
     private final AccountService accounts;
     private final LedgerService ledger;
@@ -70,6 +71,7 @@ public class TransferService {
             throw new ApiException(ErrorCode.INVALID_AMOUNT, "El monto debe ser mayor a cero.");
         }
         String hash = requestHash(cmd);
+        Trace trace = new Trace();
 
         int reserved = jdbc.sql("""
                         insert into idempotency_keys (user_id, idem_key, request_hash)
@@ -79,17 +81,21 @@ public class TransferService {
                 .params(cmd.userId(), cmd.idempotencyKey(), hash)
                 .update();
         if (reserved == 0) {
-            return replay(cmd, hash);
+            trace.mark("Llave de idempotencia", "La llave ya existía: se devuelve la transferencia guardada, sin cobrar otra vez");
+            return replay(cmd, hash, trace);
         }
+        trace.mark("Llave de idempotencia", "Reservada en idempotency_keys; otra petición con la misma llave esperaría aquí");
 
         Account source = accounts.customerAccount(cmd.userId());
         Account target = accounts.byClabe(cmd.toClabe());
         if (source.getId().equals(target.getId())) {
             throw new ApiException(ErrorCode.SAME_ACCOUNT, "No puedes transferirte a tu propia cuenta.");
         }
+        trace.mark("Cuentas", "Origen por usuario y destino por CLABE con dígito verificador válido");
 
         Map<UUID, Account> locked = ledger.lock(List.of(source.getId(), target.getId()));
         Account from = locked.get(source.getId());
+        trace.mark("Bloqueo", "SELECT … FOR UPDATE de 2 cuentas, siempre en el mismo orden para evitar interbloqueos");
 
         TransferLimits.Usage usage = limits.usage(from.getId());
         if (cmd.amount() > usage.perTransfer()) {
@@ -107,6 +113,7 @@ public class TransferService {
                     ErrorCode.INSUFFICIENT_FUNDS,
                     "Saldo insuficiente. Tu saldo disponible es " + Money.format(from.getBalance()) + ".");
         }
+        trace.mark("Validación", "Saldo y límites revisados con las cuentas ya bloqueadas");
 
         LedgerService.PostedEntry posted = ledger.post(
                 JournalEntry.Kind.TRANSFER,
@@ -124,6 +131,8 @@ public class TransferService {
                 cmd.userId(),
                 posted.entry().getCreatedAt()));
 
+        trace.mark("Asiento", "Cargo de " + Money.format(cmd.amount()) + " y abono de " + Money.format(cmd.amount()) + ": suma cero");
+
         jdbc.sql("update idempotency_keys set transfer_id = ? where user_id = ? and idem_key = ?")
                 .params(transfer.getId(), cmd.userId(), cmd.idempotencyKey())
                 .update();
@@ -137,11 +146,12 @@ public class TransferService {
         event.put("concept", cmd.concept());
         event.put("occurredAt", transfer.getCreatedAt());
         outbox.record("transfer.completed", from.getId(), event);
+        trace.mark("Outbox", "Evento transfer.completed guardado en la misma transacción, listo para Kafka");
 
-        return new Result(transfer, false);
+        return new Result(transfer, false, trace);
     }
 
-    private Result replay(Command cmd, String hash) {
+    private Result replay(Command cmd, String hash, Trace trace) {
         record Stored(String requestHash, UUID transferId) {}
         Stored stored = jdbc.sql("select request_hash, transfer_id from idempotency_keys where user_id = ? and idem_key = ?")
                 .params(cmd.userId(), cmd.idempotencyKey())
@@ -152,7 +162,7 @@ public class TransferService {
                     ErrorCode.IDEMPOTENCY_KEY_REUSED,
                     "Esta llave de idempotencia ya se usó con otros datos. Genera una nueva para otra operación.");
         }
-        return new Result(transfers.findById(stored.transferId()).orElseThrow(), true);
+        return new Result(transfers.findById(stored.transferId()).orElseThrow(), true, trace);
     }
 
     static String requestHash(Command cmd) {
