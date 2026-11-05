@@ -8,6 +8,8 @@
 ![Angular](https://img.shields.io/badge/Angular-22-dd0031)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-336791)
 
+**Demo en vivo:** [ledgerline-dbrt.onrender.com](https://ledgerline-dbrt.onrender.com) · [API (Swagger)](https://ledgerline-dbrt.onrender.com/swagger-ui.html) · la primera carga puede tardar ~1 min porque el servicio gratuito se duerme.
+
 ![Inicio de la billetera](docs/inicio.png)
 
 ## Lo que muestra la demo
