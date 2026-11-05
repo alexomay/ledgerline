@@ -1,0 +1,37 @@
+# Demo pública en Render (plan gratuito): la aplicación en Docker y una base PostgreSQL.
+# Kafka queda apagado; los eventos se registran en el log.
+services:
+  - type: web
+    name: ledgerline
+    runtime: docker
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: DB_HOST
+        fromDatabase: { name: ledgerline-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: ledgerline-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: ledgerline-db, property: database }
+      - key: DATABASE_USER
+        fromDatabase: { name: ledgerline-db, property: user }
+      - key: DATABASE_PASSWORD
+        fromDatabase: { name: ledgerline-db, property: password }
+      - key: DATABASE_POOL_SIZE
+        value: "5"
+      - key: LEDGERLINE_DEMO
+        value: "true"
+      - key: LEDGERLINE_ADMIN_PASSWORD
+        value: admin-ledgerline
+      - key: LEDGERLINE_JWT_SECRET
+        generateValue: true
+      - key: SPEI_WEBHOOK_SECRET
+        generateValue: true
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1"
+
+databases:
+  - name: ledgerline-db
+    plan: free
+    databaseName: ledgerline
+    user: ledgerline

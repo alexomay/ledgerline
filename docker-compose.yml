@@ -1,0 +1,51 @@
+# Ledgerline completo: PostgreSQL, Kafka y la aplicación en modo demo.
+#   docker compose up --build
+# Abre http://localhost:8080
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ledgerline
+      POSTGRES_USER: ledgerline
+      POSTGRES_PASSWORD: ledgerline
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerline"]
+      interval: 3s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  kafka:
+    image: apache/kafka-native:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/ledgerline
+      DATABASE_USER: ledgerline
+      DATABASE_PASSWORD: ledgerline
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LEDGERLINE_KAFKA_ENABLED: "true"
+      LEDGERLINE_DEMO: "true"
+      LEDGERLINE_ADMIN_PASSWORD: admin-ledgerline
+      LEDGERLINE_JWT_SECRET: cambia-este-secreto-de-desarrollo-por-uno-largo
+      SPEI_WEBHOOK_SECRET: cambia-este-secreto-del-banco
+
+volumes:
+  pgdata:

@@ -1,0 +1,68 @@
+spring:
+  application:
+    name: ledgerline
+  datasource:
+    # DATABASE_URL completa, o sus partes por separado (así las entrega Render).
+    url: ${DATABASE_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ledgerline}}
+    username: ${DATABASE_USER:ledgerline}
+    password: ${DATABASE_PASSWORD:ledgerline}
+    hikari:
+      maximum-pool-size: ${DATABASE_POOL_SIZE:10}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+  error:
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+ledgerline:
+  timezone: America/Mexico_City
+  jwt:
+    # En producción se define LEDGERLINE_JWT_SECRET (mínimo 32 caracteres).
+    secret: ${LEDGERLINE_JWT_SECRET:solo-para-desarrollo-cambiar-en-produccion-0123456789}
+    ttl: 2h
+  limits:
+    per-transfer: 50000.00
+    daily: 100000.00
+  spei:
+    webhook-secret: ${SPEI_WEBHOOK_SECRET:solo-para-desarrollo}
+    tolerance: 5m
+  kafka:
+    enabled: ${LEDGERLINE_KAFKA_ENABLED:false}
+    topic: ledgerline.events
+  demo:
+    enabled: ${LEDGERLINE_DEMO:false}
+    admin-password: ${LEDGERLINE_ADMIN_PASSWORD:}
+    max-deposit: 20000.00
+  clabe:
+    bank-code: "999"
+    branch-code: "180"
